@@ -1,0 +1,2441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Well Read — A YA Book Guessing Game</title>
+<style>
+  :root {
+    --ink-navy: #1c2b33;
+    --navy-deep: #131e24;
+    --parchment: #f0e4c8;
+    --parchment-dark: #e2d2a8;
+    --parchment-line: #c9b487;
+    --rust: #ab4038;
+    --rust-dark: #8a332c;
+    --gold: #c0923b;
+    --gold-bright: #dcae54;
+    --sage: #5c7a52;
+    --sage-dark: #46603d;
+    --charcoal: #2a2118;
+    --cream-text: #f5ecd8;
+    --shadow-soft: 0 10px 30px rgba(0,0,0,0.35);
+
+    /* System-only font stacks — no network requests, fully offline.
+       Display: a bold, slightly old-fashioned serif for headings.
+       Body: a warm, humanist serif built for reading.
+       Mono: a real typewriter face for the card-catalog stamp details. */
+    --font-display: Georgia, 'Times New Roman', 'Liberation Serif', Times, serif;
+    --font-body: 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, 'Liberation Serif', serif;
+    --font-mono: 'Courier New', Courier, 'Liberation Mono', monospace;
+
+    /* Semantic feedback colors — kept separate from the decorative sage/gold/rust
+       so colorblind mode can remap ONLY these, without touching the app's theme. */
+    --fb-correct: var(--sage);
+    --fb-correct-dark: var(--sage-dark);
+    --fb-present: var(--gold);
+    --fb-present-dark: var(--gold-bright);
+    --fb-absent: var(--rust);
+    --fb-absent-dark: var(--rust-dark);
+  }
+
+  /* Colorblind-friendly palette: swaps green/amber/red for blue/orange/red, which
+     stays distinguishable for the most common forms of color blindness, and pairs
+     with the shape/symbol markers added below so meaning never depends on color alone. */
+  body.colorblind-mode {
+    --fb-correct: #2f6fed;
+    --fb-correct-dark: #1f4fb0;
+    --fb-present: #e08a1e;
+    --fb-present-dark: #b56d12;
+    --fb-absent: #b23a3a;
+    --fb-absent-dark: #8a2c2c;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+  }
+
+  body {
+    background:
+      radial-gradient(ellipse at top, #24363f 0%, var(--ink-navy) 45%, var(--navy-deep) 100%);
+    color: var(--cream-text);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px 48px;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* subtle paper-grain texture overlay */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    z-index: 0;
+  }
+
+  .stage {
+    width: 100%;
+    max-width: 880px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    font-size: 11px;
+    color: var(--gold-bright);
+    text-align: center;
+    margin: 0 0 10px;
+  }
+
+  .brand {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(2.2rem, 6vw, 3.4rem);
+    text-align: center;
+    margin: 0;
+    letter-spacing: -0.01em;
+    color: var(--parchment);
+  }
+
+  .brand em {
+    font-style: italic;
+    font-weight: 500;
+    color: var(--rust);
+  }
+
+  .tagline {
+    text-align: center;
+    color: var(--parchment-dark);
+    font-size: 0.98rem;
+    margin: 8px 0 40px;
+    font-style: italic;
+    opacity: 0.85;
+  }
+
+  /* ---------- Screens ---------- */
+  .screen {
+    display: none;
+  }
+  .screen.active {
+    display: block;
+    animation: riseIn 0.45s ease both;
+  }
+
+  @keyframes riseIn {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---------- Card catalog nav / progress ---------- */
+  .drawer-tabs {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 32px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--parchment-dark);
+    opacity: 0.6;
+  }
+  .drawer-tabs .tab-step.current {
+    color: var(--gold-bright);
+    opacity: 1;
+  }
+  .drawer-tabs .sep { opacity: 0.4; }
+
+  /* ---------- Index cards grid ---------- */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 22px;
+  }
+
+  .index-card {
+    background: linear-gradient(180deg, var(--parchment) 0%, var(--parchment-dark) 100%);
+    color: var(--charcoal);
+    border-radius: 4px;
+    padding: 26px 22px 24px;
+    text-align: left;
+    cursor: pointer;
+    position: relative;
+    box-shadow: var(--shadow-soft);
+    border: 1px solid var(--parchment-line);
+    transition: transform 0.22s ease, box-shadow 0.22s ease;
+    font: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 190px;
+  }
+
+  .index-card::before {
+    /* punch holes like a library card */
+    content: "";
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--navy-deep);
+    box-shadow: 26px 0 0 var(--navy-deep);
+  }
+
+  .index-card:hover,
+  .index-card:focus-visible {
+    transform: translateY(-4px) rotate(-0.4deg);
+    box-shadow: 0 16px 34px rgba(0,0,0,0.45);
+  }
+
+  .index-card:focus-visible {
+    outline: 3px solid var(--gold-bright);
+    outline-offset: 3px;
+  }
+
+  .index-card .icon {
+    width: 40px;
+    height: 40px;
+    margin-left: auto;
+    color: var(--rust);
+  }
+
+  .index-card h3 {
+    font-family: var(--font-display);
+    font-size: 1.3rem;
+    margin: 0;
+    font-weight: 700;
+  }
+
+  .index-card p {
+    margin: 0;
+    font-size: 0.92rem;
+    line-height: 1.45;
+    color: #4a3f30;
+  }
+
+  .index-card .stamp-hint {
+    margin-top: auto;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--rust-dark);
+    border-top: 1px dashed var(--parchment-line);
+    padding-top: 10px;
+  }
+
+  /* difficulty cards use a stamp-forward layout */
+  .diff-card .stamp-ring {
+    align-self: flex-start;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: 3px solid currentColor;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    transform: rotate(-8deg);
+  }
+  .diff-card[data-level="easy"] .stamp-ring { color: var(--sage-dark); }
+  .diff-card[data-level="normal"] .stamp-ring { color: var(--gold); }
+  .diff-card[data-level="hard"] .stamp-ring { color: var(--rust); }
+
+  /* ---------- Back button ---------- */
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    color: var(--parchment-dark);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    margin-bottom: 22px;
+    padding: 6px 4px;
+    opacity: 0.75;
+    transition: opacity 0.2s ease;
+  }
+  .back-link:hover { opacity: 1; }
+
+  /* ---------- Selected mode chip on difficulty screen ---------- */
+  .selected-chip {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 26px;
+  }
+  .selected-chip span {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    background: var(--rust);
+    color: var(--cream-text);
+    padding: 8px 18px;
+    border-radius: 999px;
+    box-shadow: var(--shadow-soft);
+  }
+
+  /* ---------- Game screen placeholder ---------- */
+  .catalog-slip {
+    background: linear-gradient(180deg, var(--parchment) 0%, var(--parchment-dark) 100%);
+    color: var(--charcoal);
+    border-radius: 4px;
+    padding: 40px 32px;
+    max-width: 560px;
+    margin: 0 auto;
+    text-align: center;
+    box-shadow: var(--shadow-soft);
+    border: 1px solid var(--parchment-line);
+  }
+  .catalog-slip h2 {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    margin: 0 0 6px;
+  }
+  .catalog-slip .meta-line {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--rust-dark);
+    margin-bottom: 22px;
+  }
+  .catalog-slip p.body-copy {
+    color: #4a3f30;
+    line-height: 1.6;
+    margin: 0 0 26px;
+  }
+  .restart-btn {
+    font-family: var(--font-mono);
+    background: var(--ink-navy);
+    color: var(--cream-text);
+    border: none;
+    padding: 12px 26px;
+    border-radius: 999px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.2s ease;
+  }
+  .restart-btn:hover { background: var(--navy-deep); transform: translateY(-2px); }
+
+  /* ---------- Wordle game ---------- */
+  .wordle-wrap {
+    max-width: 640px;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  .wordle-intro {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--gold-bright);
+    margin-bottom: 18px;
+  }
+
+  .attempts-row {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 22px;
+  }
+  .attempt-stub {
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    border: 2px solid var(--parchment-line);
+    opacity: 0.55;
+    transition: all 0.25s ease;
+  }
+  .attempt-stub.used {
+    background: var(--rust);
+    border-color: var(--rust-dark);
+    opacity: 1;
+  }
+
+  .wordle-board {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 22px;
+  }
+
+  .wordle-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: flex-end;
+    gap: 5px;
+    row-gap: 8px;
+  }
+
+  .tile {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    position: relative;
+    border: 2px solid var(--parchment-line);
+    border-radius: 4px;
+    background: rgba(240, 228, 200, 0.08);
+    color: var(--parchment);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    transition: transform 0.4s ease, background 0.4s ease, border-color 0.4s ease;
+  }
+  .tile.empty { background: rgba(240, 228, 200, 0.06); }
+  .tile.correct { background: var(--fb-correct); border-color: var(--fb-correct-dark); color: #fff; }
+  .tile.present { background: var(--fb-present); border-color: var(--fb-present-dark); color: var(--charcoal); }
+  .tile.absent  { background: var(--fb-absent); border-color: var(--fb-absent-dark); color: #fff; }
+  .tile.flip { animation: tileFlip 0.45s ease; }
+
+  /* Colorblind mode: shape markers so meaning never relies on hue alone */
+  body.colorblind-mode .tile.correct::after,
+  body.colorblind-mode .tile.present::after,
+  body.colorblind-mode .tile.absent::after {
+    position: absolute;
+    bottom: 1px;
+    right: 2px;
+    font-size: 8px;
+    line-height: 1;
+    font-family: var(--font-mono);
+  }
+  body.colorblind-mode .tile.correct::after { content: '✓'; color: rgba(255,255,255,0.9); }
+  body.colorblind-mode .tile.present::after { content: '●'; color: rgba(0,0,0,0.55); }
+  body.colorblind-mode .tile.absent::after { content: '✕'; color: rgba(255,255,255,0.85); }
+
+  @keyframes tileFlip {
+    0% { transform: rotateX(0deg); }
+    50% { transform: rotateX(90deg); }
+    100% { transform: rotateX(0deg); }
+  }
+
+  .word-gap { width: 16px; flex: 0 0 auto; }
+  .punct-mark {
+    align-self: flex-end;
+    padding-bottom: 6px;
+    font-family: var(--font-mono);
+    color: var(--parchment-dark);
+    font-size: 0.9rem;
+  }
+
+  .tile-legend {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--parchment-dark);
+    opacity: 0.75;
+    margin-bottom: 26px;
+  }
+  .tile-legend .swatch {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    margin: 0 5px 0 12px;
+    vertical-align: middle;
+  }
+  .tile-legend .swatch:first-child { margin-left: 0; }
+  .tile-legend .swatch.correct { background: var(--sage); }
+  .tile-legend .swatch.present { background: var(--gold); }
+  .tile-legend .swatch.absent { background: var(--rust); }
+
+  .game-message {
+    min-height: 1.4em;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.05rem;
+    color: var(--gold-bright);
+    margin-bottom: 14px;
+  }
+  .game-message.is-error { color: var(--rust); font-family: var(--font-mono); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .hint-area {
+    margin-bottom: 18px;
+    min-height: 18px;
+  }
+  .hint-btn {
+    font-family: var(--font-mono);
+    background: none;
+    border: 1px dashed var(--parchment-line);
+    color: var(--gold-bright);
+    padding: 6px 16px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease;
+  }
+  .hint-btn:hover { background: rgba(220,174,84,0.12); }
+  .hint-text {
+    font-family: var(--font-body);
+    font-style: italic;
+    font-size: 0.92rem;
+    color: var(--parchment-dark);
+    margin: 4px 0 0;
+  }
+
+  @keyframes inputShake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-6px); }
+    40%, 80% { transform: translateX(6px); }
+  }
+  #guess-input.shake {
+    animation: inputShake 0.4s ease;
+    border-color: var(--rust);
+  }
+
+  .guess-form {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  #guess-input {
+    font-family: var(--font-body);
+    font-size: 1rem;
+    padding: 11px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--parchment-line);
+    background: var(--parchment);
+    color: var(--charcoal);
+    flex: 1 1 240px;
+    min-width: 0;
+  }
+  #guess-input:focus-visible {
+    outline: 3px solid var(--gold-bright);
+    outline-offset: 2px;
+  }
+
+  .check-btn {
+    font-family: var(--font-mono);
+    background: var(--rust);
+    color: var(--cream-text);
+    border: none;
+    padding: 11px 22px;
+    border-radius: 999px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.2s ease;
+  }
+  .check-btn:hover { background: var(--rust-dark); transform: translateY(-2px); }
+  .check-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  .game-endbar {
+    display: none;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 22px;
+    flex-wrap: wrap;
+  }
+  .game-endbar.show { display: flex; }
+
+  .btn-outline {
+    font-family: var(--font-mono);
+    background: transparent;
+    color: var(--parchment);
+    border: 1.5px solid var(--parchment-line);
+    padding: 11px 22px;
+    border-radius: 999px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.2s ease;
+  }
+  .btn-outline:hover { background: rgba(240,228,200,0.08); transform: translateY(-2px); }
+  .btn-outline:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* ---------- Scramble game ---------- */
+  .scramble-wrap {
+    max-width: 640px;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  .scramble-answer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    row-gap: 10px;
+    margin-bottom: 26px;
+    transition: transform 0.05s ease;
+  }
+  .scramble-answer.shake { animation: inputShake 0.4s ease; }
+
+  .scramble-slot {
+    width: 38px;
+    height: 44px;
+    flex: 0 0 auto;
+    border: 2px dashed var(--parchment-line);
+    border-radius: 6px;
+    background: rgba(240, 228, 200, 0.05);
+    color: var(--parchment);
+    font: inherit;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 1.05rem;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+    padding: 0;
+    transition: transform 0.15s ease;
+  }
+  .scramble-slot.filled {
+    border-style: solid;
+    border-color: var(--gold);
+    background: linear-gradient(160deg, var(--parchment) 0%, var(--parchment-dark) 100%);
+    color: var(--charcoal);
+    cursor: pointer;
+    box-shadow: var(--shadow-soft);
+  }
+  .scramble-slot.filled:hover { transform: translateY(-3px); }
+
+  .scramble-gap { width: 16px; flex: 0 0 auto; }
+  .scramble-punct {
+    align-self: center;
+    color: var(--parchment-dark);
+    font-family: var(--font-mono);
+    font-size: 1rem;
+  }
+
+  .scramble-pool {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin: 0 0 22px;
+    padding: 16px 10px;
+    min-height: 60px;
+    border-top: 1px dashed var(--parchment-line);
+    border-bottom: 1px dashed var(--parchment-line);
+  }
+
+  .scramble-tile {
+    width: 42px;
+    height: 42px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: linear-gradient(160deg, var(--parchment) 0%, var(--parchment-dark) 100%);
+    color: var(--charcoal);
+    border: 2px solid var(--gold);
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 1.05rem;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+  }
+  .scramble-tile:hover { transform: translateY(-3px) rotate(-3deg); box-shadow: 0 8px 16px rgba(0,0,0,0.4); }
+  .scramble-tile:active { transform: scale(0.94); }
+
+  .scramble-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  /* ---------- Crossword game ---------- */
+  .crossword-wrap {
+    max-width: 900px;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  .crossword-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 6px 4px 14px;
+    margin-bottom: 8px;
+  }
+
+  .crossword-grid {
+    display: inline-grid;
+    gap: 3px;
+    margin: 0 auto;
+  }
+
+  .cw-cell {
+    position: relative;
+    width: 28px;
+    height: 28px;
+  }
+  .cw-cell.empty { visibility: hidden; }
+
+  .cw-cell input {
+    width: 100%;
+    height: 100%;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 0.92rem;
+    text-transform: uppercase;
+    border: 1.5px solid var(--parchment-line);
+    border-radius: 3px;
+    background: var(--parchment);
+    color: var(--charcoal);
+    padding: 0;
+    caret-color: var(--rust);
+  }
+  .cw-cell input:focus {
+    outline: 2px solid var(--gold-bright);
+    outline-offset: -1px;
+  }
+  .cw-cell.active-word input {
+    background: var(--parchment-dark);
+  }
+  .cw-cell.correct input {
+    background: var(--fb-correct) !important;
+    color: #fff;
+    border-color: var(--fb-correct-dark);
+  }
+  .cw-cell.incorrect input {
+    background: var(--fb-absent) !important;
+    color: #fff;
+    border-color: var(--fb-absent-dark);
+  }
+  .cw-cell.correct input:read-only { opacity: 1; -webkit-text-fill-color: #fff; }
+
+  /* Colorblind mode: shape markers so a solved vs. wrong cell never depends on hue alone */
+  body.colorblind-mode .cw-cell.correct::after,
+  body.colorblind-mode .cw-cell.incorrect::after {
+    content: '';
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    font-size: 8px;
+    line-height: 1;
+    font-family: var(--font-mono);
+    z-index: 2;
+    pointer-events: none;
+  }
+  body.colorblind-mode .cw-cell.correct::after { content: '✓'; color: rgba(255,255,255,0.9); }
+  body.colorblind-mode .cw-cell.incorrect::after { content: '✕'; color: rgba(255,255,255,0.9); }
+
+  .cw-number {
+    position: absolute;
+    top: 0px;
+    left: 1px;
+    font-size: 9px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--charcoal);
+    text-shadow:
+      -1px -1px 0 rgba(255,255,255,0.85),
+      1px -1px 0 rgba(255,255,255,0.85),
+      -1px 1px 0 rgba(255,255,255,0.85),
+      1px 1px 0 rgba(255,255,255,0.85);
+    pointer-events: none;
+    line-height: 1;
+    z-index: 1;
+  }
+
+  .crossword-toolbar {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 22px;
+  }
+
+  .clue-panels {
+    display: flex;
+    gap: 26px;
+    text-align: left;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 22px;
+  }
+  .clue-col {
+    flex: 1 1 260px;
+    min-width: 220px;
+    max-width: 340px;
+  }
+  .clue-col h4 {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--gold-bright);
+    margin: 0 0 10px;
+  }
+  .clue-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .clue-item {
+    font-family: var(--font-body);
+    font-size: 0.87rem;
+    line-height: 1.35;
+    color: var(--parchment-dark);
+    cursor: pointer;
+    padding: 6px 9px;
+    border-radius: 4px;
+    transition: background 0.15s ease;
+  }
+  .clue-item:hover { background: rgba(240, 228, 200, 0.07); }
+  .clue-item.active-clue { background: rgba(220, 174, 84, 0.16); color: var(--parchment); }
+  .clue-item.solved-clue { text-decoration: line-through; opacity: 0.5; }
+  .clue-item .clue-num {
+    font-weight: 700;
+    color: var(--gold-bright);
+    margin-right: 6px;
+    font-family: var(--font-mono);
+  }
+
+  @media (max-width: 480px) {
+    .cw-cell { width: 24px; height: 24px; }
+    .cw-cell input { font-size: 0.82rem; }
+  }
+
+  /* ---------- Colorblind toggle ---------- */
+  .colorblind-toggle {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(19, 30, 36, 0.75);
+    border: 1.5px solid var(--parchment-line);
+    color: var(--parchment-dark);
+    padding: 7px 12px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  }
+  .colorblind-toggle:hover { border-color: var(--gold-bright); color: var(--parchment); }
+  .colorblind-toggle svg { flex: 0 0 auto; }
+  .colorblind-toggle[aria-pressed="true"] {
+    background: var(--gold);
+    border-color: var(--gold-bright);
+    color: var(--charcoal);
+  }
+  .colorblind-toggle span {
+    display: none;
+  }
+  @media (min-width: 560px) {
+    .colorblind-toggle span { display: inline; }
+  }
+
+  /* ---------- Win celebration ---------- */
+  .win-celebration {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(19, 30, 36, 0.6);
+    cursor: pointer;
+    overflow: hidden;
+  }
+  .win-celebration[hidden] { display: none; }
+
+  .confetti-field {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .confetti-piece {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    border-radius: 1px;
+    will-change: transform, opacity;
+  }
+
+  .win-celebration-text {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+    padding: 34px 42px;
+    background: linear-gradient(180deg, var(--parchment) 0%, var(--parchment-dark) 100%);
+    border-radius: 6px;
+    box-shadow: var(--shadow-soft);
+    border: 1px solid var(--parchment-line);
+    animation: winTextPop 0.45s cubic-bezier(0.2, 0.8, 0.3, 1.2) both;
+  }
+  .win-celebration-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(1.6rem, 6vw, 2.4rem);
+    color: var(--charcoal);
+  }
+  .win-celebration-title em {
+    font-style: italic;
+    color: var(--rust);
+  }
+  .win-celebration-hint {
+    margin: 10px 0 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--rust-dark);
+    opacity: 0.75;
+  }
+
+  @keyframes winTextPop {
+    from { transform: scale(0.85); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .win-celebration-text { animation: none; }
+  }
+
+  footer.note {
+    text-align: center;
+    margin-top: 40px;
+    font-size: 11px;
+    color: var(--parchment-dark);
+    opacity: 0.45;
+    font-family: var(--font-mono);
+    letter-spacing: 0.08em;
+  }
+
+  @media (max-width: 480px) {
+    .index-card { min-height: 165px; padding: 22px 18px 20px; }
+    .brand { font-size: 2rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .screen.active { animation: none; }
+    .index-card, .restart-btn { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <p class="eyebrow">The Card Catalog</p>
+  <h1 class="brand">Well <em>Read</em></h1>
+  <p class="tagline">a young adult book guessing game, checked out just for you</p>
+
+  <!-- SCREEN 1: MODE SELECT -->
+  <section class="screen active" id="screen-mode">
+    <div class="drawer-tabs">
+      <span class="tab-step current">1. Choose a game</span>
+      <span class="sep">·</span>
+      <span class="tab-step">2. Set difficulty</span>
+      <span class="sep">·</span>
+      <span class="tab-step">3. Play</span>
+    </div>
+
+    <div class="card-grid">
+      <button class="index-card" data-mode="crossword">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+        <h3>Crossword</h3>
+        <p>Ten titles hidden in one grid. Fill them all in before the drawer closes.</p>
+        <span class="stamp-hint">10 books · full grid</span>
+      </button>
+
+      <button class="index-card" data-mode="wordle">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="4" height="4"/><rect x="9" y="4" width="4" height="4"/><rect x="15" y="4" width="4" height="4"/><rect x="3" y="10" width="4" height="4"/><rect x="9" y="10" width="4" height="4"/><rect x="3" y="16" width="4" height="4"/></svg>
+        <h3>Wordle-Style</h3>
+        <p>One title, five tries. Color clues nudge you closer with every guess.</p>
+        <span class="stamp-hint">1 book · 5 attempts</span>
+      </button>
+
+      <button class="index-card" data-mode="scramble">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7l4 10M8 7l-4 10M13 7v10M20 7l-3 10M17 7l3 10"/></svg>
+        <h3>Scramble</h3>
+        <p>Every letter of a title, tossed in the air. Rearrange it before it lands wrong.</p>
+        <span class="stamp-hint">1 book · unscramble</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- SCREEN 2: DIFFICULTY SELECT -->
+  <section class="screen" id="screen-difficulty">
+    <button class="back-link" data-back-to="screen-mode">&larr; back to games</button>
+    <div class="drawer-tabs">
+      <span class="tab-step">1. Choose a game</span>
+      <span class="sep">·</span>
+      <span class="tab-step current">2. Set difficulty</span>
+      <span class="sep">·</span>
+      <span class="tab-step">3. Play</span>
+    </div>
+
+    <div class="selected-chip"><span id="mode-chip-label">Mode</span></div>
+
+    <div class="card-grid">
+      <button class="index-card diff-card" data-level="easy">
+        <div class="stamp-ring">Easy</div>
+        <h3>Easy</h3>
+        <p>Books everyone's heard of — think blockbuster movies and required reading.</p>
+        <span class="stamp-hint">pop-culture staples</span>
+      </button>
+
+      <button class="index-card diff-card" data-level="normal">
+        <div class="stamp-ring">Normal</div>
+        <h3>Normal</h3>
+        <p>Beloved reads with a devoted fanbase, but not always a household name.</p>
+        <span class="stamp-hint">well-loved, less mainstream</span>
+      </button>
+
+      <button class="index-card diff-card" data-level="hard">
+        <div class="stamp-ring">Hard</div>
+        <h3>Hard</h3>
+        <p>Deep-cut series and cult classics — for the true YA superfan.</p>
+        <span class="stamp-hint">for the completionist</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- SCREEN 3: GAME PLACEHOLDER -->
+  <section class="screen" id="screen-game">
+    <button class="back-link" data-back-to="screen-difficulty">&larr; change difficulty</button>
+    <div class="drawer-tabs">
+      <span class="tab-step">1. Choose a game</span>
+      <span class="sep">·</span>
+      <span class="tab-step">2. Set difficulty</span>
+      <span class="sep">·</span>
+      <span class="tab-step current">3. Play</span>
+    </div>
+
+    <div class="catalog-slip" id="game-placeholder">
+      <h2 id="game-title-placeholder">Ready to play</h2>
+      <p class="meta-line" id="game-meta-placeholder">MODE · DIFFICULTY</p>
+      <p class="body-copy">This game mode is still being catalogued — check back soon. For now, the structure and navigation are in place.</p>
+      <button class="restart-btn" id="restart-btn">Start Over</button>
+    </div>
+
+    <div class="wordle-wrap" id="game-wordle" hidden>
+      <p class="wordle-intro" id="wordle-difficulty-label">Normal difficulty</p>
+
+      <div class="attempts-row" id="attempts-row"></div>
+
+      <div class="wordle-board" id="wordle-board"></div>
+
+      <p class="tile-legend">
+        <span class="swatch correct"></span>right spot
+        <span class="swatch present"></span>wrong spot
+        <span class="swatch absent"></span>not in title
+      </p>
+
+      <p class="game-message" id="wordle-message"></p>
+
+      <div class="hint-area">
+        <button type="button" class="hint-btn" id="hint-btn">Need a hint?</button>
+        <p class="hint-text" id="hint-text" hidden></p>
+      </div>
+
+      <form class="guess-form" id="guess-form" autocomplete="off">
+        <input type="text" id="guess-input" placeholder="Type the full title…" aria-label="Your guess">
+        <button type="submit" class="check-btn" id="check-btn">Check</button>
+      </form>
+
+      <div class="game-endbar" id="wordle-endbar">
+        <button class="restart-btn" id="play-again-btn">Play Again</button>
+        <button class="btn-outline" id="wordle-menu-btn">Back to Menu</button>
+      </div>
+    </div>
+
+    <div class="scramble-wrap" id="game-scramble" hidden>
+      <p class="wordle-intro" id="scramble-difficulty-label">Normal difficulty</p>
+
+      <div class="scramble-answer" id="scramble-answer"></div>
+
+      <div class="scramble-pool" id="scramble-pool"></div>
+
+      <p class="game-message" id="scramble-message"></p>
+
+      <div class="hint-area">
+        <button type="button" class="hint-btn" id="scramble-hint-btn">Need a hint?</button>
+        <p class="hint-text" id="scramble-hint-text" hidden></p>
+      </div>
+
+      <div class="scramble-actions">
+        <button type="button" class="btn-outline" id="scramble-shuffle-btn">Shuffle</button>
+        <button type="button" class="btn-outline" id="scramble-clear-btn">Clear</button>
+        <button type="button" class="check-btn" id="scramble-check-btn" disabled>Check</button>
+      </div>
+      <div class="scramble-actions">
+        <button type="button" class="btn-outline" id="scramble-giveup-btn">Give Up</button>
+      </div>
+
+      <div class="game-endbar" id="scramble-endbar">
+        <button class="restart-btn" id="scramble-play-again-btn">Play Again</button>
+        <button class="btn-outline" id="scramble-menu-btn">Back to Menu</button>
+      </div>
+    </div>
+
+    <div class="crossword-wrap" id="game-crossword" hidden>
+      <p class="wordle-intro" id="crossword-difficulty-label">Normal difficulty</p>
+
+      <p class="game-message" id="crossword-message"></p>
+
+      <div class="crossword-scroll">
+        <div class="crossword-grid" id="crossword-grid"></div>
+      </div>
+
+      <div class="crossword-toolbar">
+        <button type="button" class="btn-outline" id="crossword-hint-btn">Reveal a Letter</button>
+        <button type="button" class="btn-outline" id="crossword-new-btn">New Puzzle</button>
+      </div>
+
+      <div class="clue-panels">
+        <div class="clue-col">
+          <h4>Across</h4>
+          <ol class="clue-list" id="clue-list-across"></ol>
+        </div>
+        <div class="clue-col">
+          <h4>Down</h4>
+          <ol class="clue-list" id="clue-list-down"></ol>
+        </div>
+      </div>
+
+      <div class="game-endbar" id="crossword-endbar">
+        <button class="restart-btn" id="crossword-play-again-btn">Play Again</button>
+        <button class="btn-outline" id="crossword-menu-btn">Back to Menu</button>
+      </div>
+    </div>
+  </section>
+
+  <footer class="note">est. this weekend · handmade with care</footer>
+</div>
+
+<button type="button" id="colorblind-toggle" class="colorblind-toggle" aria-pressed="false" title="Toggle colorblind-friendly mode">
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none"/></svg>
+  <span>Colorblind Mode</span>
+</button>
+
+<div id="win-celebration" class="win-celebration" hidden>
+  <div class="confetti-field" id="confetti-field"></div>
+  <div class="win-celebration-text">
+    <p class="win-celebration-title">You are <em>Well Read!</em></p>
+    <p class="win-celebration-hint">tap anywhere to continue</p>
+  </div>
+</div>
+
+<script>
+  const state = { mode: null, difficulty: null };
+
+  // ============ WIN CELEBRATION (shared by all three games) ============
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function spawnConfettiPiece(field) {
+    const piece = document.createElement('div');
+    piece.className = 'confetti-piece';
+
+    const angle = Math.random() * Math.PI * 2;
+    const distance = 260 + Math.random() * 280;
+    const startX = Math.cos(angle) * distance;
+    const startY = Math.sin(angle) * distance;
+    const midX = startX * 0.25;
+    const midY = startY * 0.25;
+    const rotateStart = Math.random() * 360;
+    const rotateEnd = rotateStart + (Math.random() > 0.5 ? 1 : -1) * (280 + Math.random() * 300);
+
+    const size = 5 + Math.random() * 6;
+    const colors = ['var(--rust)', 'var(--gold)', 'var(--gold-bright)', 'var(--sage)', 'var(--parchment)', 'var(--cream-text)'];
+    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+    piece.style.width = size + 'px';
+    piece.style.height = (size * 0.42) + 'px';
+    field.appendChild(piece);
+
+    if (prefersReducedMotion) {
+      // Keep the celebration calm for anyone who prefers reduced motion —
+      // no flying pieces, just a brief static scatter that fades in place.
+      piece.style.left = 'calc(50% + ' + (startX * 0.3) + 'px)';
+      piece.style.top = 'calc(50% + ' + (startY * 0.3) + 'px)';
+      piece.style.opacity = '0.5';
+      return;
+    }
+
+    piece.animate([
+      { transform: `translate(${startX}px, ${startY}px) rotate(${rotateStart}deg)`, opacity: 1 },
+      { transform: `translate(${midX}px, ${midY}px) rotate(${(rotateStart + rotateEnd) / 2}deg)`, opacity: 1, offset: 0.7 },
+      { transform: `translate(0px, 0px) rotate(${rotateEnd}deg)`, opacity: 0 },
+    ], {
+      duration: 900 + Math.random() * 700,
+      delay: Math.random() * 350,
+      easing: 'cubic-bezier(0.2, 0.6, 0.3, 1)',
+      fill: 'forwards',
+    });
+  }
+
+  function showWinCelebration() {
+    const overlay = document.getElementById('win-celebration');
+    const field = document.getElementById('confetti-field');
+    field.innerHTML = '';
+
+    const pieceCount = prefersReducedMotion ? 16 : 70;
+    for (let i = 0; i < pieceCount; i++) spawnConfettiPiece(field);
+
+    overlay.hidden = false;
+  }
+
+  function hideWinCelebration() {
+    const overlay = document.getElementById('win-celebration');
+    overlay.hidden = true;
+    document.getElementById('confetti-field').innerHTML = '';
+  }
+
+  document.getElementById('win-celebration').addEventListener('click', hideWinCelebration);
+
+  // ============ COLORBLIND MODE TOGGLE ============
+  const colorblindToggle = document.getElementById('colorblind-toggle');
+  colorblindToggle.addEventListener('click', () => {
+    const isOn = document.body.classList.toggle('colorblind-mode');
+    colorblindToggle.setAttribute('aria-pressed', isOn ? 'true' : 'false');
+  });
+
+
+  const screens = {
+    mode: document.getElementById('screen-mode'),
+    difficulty: document.getElementById('screen-difficulty'),
+    game: document.getElementById('screen-game'),
+  };
+
+  function showScreen(key) {
+    Object.values(screens).forEach(s => s.classList.remove('active'));
+    screens[key].classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  const modeLabels = {
+    crossword: 'Crossword',
+    wordle: 'Wordle-Style',
+    scramble: 'Scramble',
+  };
+  const difficultyLabels = {
+    easy: 'Easy',
+    normal: 'Normal',
+    hard: 'Hard',
+  };
+
+  // ---------- Book lists ----------
+  // Each entry: { title, author }. Easy = single-word titles, Normal = up to 4 words, Hard = any length.
+  const BOOKS = {
+    easy: [
+      { title: "Twilight", author: "Stephenie Meyer", clue: "A teenage girl falls for a mysterious, dangerously alluring classmate who turns out to be a vampire." },
+      { title: "Divergent", author: "Veronica Roth", clue: "A girl chooses a faction outside her family's and uncovers a conspiracy threatening her divided city." },
+      { title: "Insurgent", author: "Veronica Roth", clue: "Now a fugitive, a girl searches for answers while war brews between her city's factions." },
+      { title: "Allegiant", author: "Veronica Roth", clue: "A girl and her allies escape their walled city and discover a shocking truth about the outside world." },
+      { title: "Wonder", author: "R.J. Palacio", clue: "A boy with facial differences starts mainstream school for the first time." },
+      { title: "Eragon", author: "Christopher Paolini", clue: "A farm boy finds a dragon egg and becomes a Dragon Rider." },
+      { title: "Holes", author: "Louis Sachar", clue: "A boy sent to a juvenile camp is forced to dig holes that hide a decades-old secret." },
+      { title: "Cinder", author: "Marissa Meyer", clue: "A gifted mechanic who is part-cyborg gets swept into a royal scandal and a deadly plague." },
+      { title: "Uglies", author: "Scott Westerfeld", clue: "A girl in a future society awaits a mandatory surgery that makes everyone beautiful — and obedient." },
+      { title: "Matched", author: "Ally Condie", clue: "A girl who trusts her society's Matching system to choose her future is torn between two boys." },
+      { title: "Unwind", author: "Neal Shusterman", clue: "Three teens go on the run to escape a law that lets parents have them retroactively \"unwound.\"" },
+      { title: "Delirium", author: "Lauren Oliver", clue: "In a world where love is classified as a disease, a girl falls hard just days before her cure." },
+      { title: "Hatchet", author: "Gary Paulsen", clue: "A boy survives alone in the Canadian wilderness after a plane crash, armed with only a hatchet." },
+      { title: "Gone", author: "Michael Grant", clue: "Every person over the age of fifteen vanishes without warning, leaving kids to fend for themselves." },
+      { title: "Monster", author: "Walter Dean Myers", clue: "A teenager on trial for murder tells his story of the courtroom as if it were a movie script." },
+      { title: "Refugee", author: "Alan Gratz", clue: "Three kids from different eras flee their homelands in search of safety and a place to belong." },
+      { title: "Restart", author: "Gordon Korman", clue: "A bully loses his memory after a fall and gets a chance to become a completely different person." },
+      { title: "Fangirl", author: "Rainbow Rowell", clue: "A socially anxious college freshman clings to fan fiction while navigating life without her twin sister." },
+      { title: "Renegades", author: "Marissa Meyer", clue: "A girl bent on revenge against a league of superheroes falls for one of them undercover." },
+      { title: "Booked", author: "Kwame Alexander", clue: "A soccer-obsessed middle schooler navigates family drama and bullies, all told in verse." },
+    ],
+    normal: [
+      { title: "The Book Thief", author: "Markus Zusak", clue: "A girl in Nazi Germany steals books and shares them during the horrors of war." },
+      { title: "Eleanor and Park", author: "Rainbow Rowell", clue: "Two misfit teens fall in love over comic books and mix tapes on the school bus." },
+      { title: "Six of Crows", author: "Leigh Bardugo", clue: "A crew of six outcasts plans an impossible heist in a city of thieves." },
+      { title: "The Giver", author: "Lois Lowry", clue: "A boy is chosen to inherit painful memories his utopian community has erased." },
+      { title: "Speak", author: "Laurie Halse Anderson", clue: "A girl goes silent after a traumatic party and slowly finds her voice through art class." },
+      { title: "Vampire Academy", author: "Richelle Mead", clue: "A half-vampire guardian trains to protect her royal best friend from deadly enemies." },
+      { title: "Legend", author: "Marie Lu", clue: "A prodigy soldier and a notorious criminal cross paths in a divided, war-torn nation." },
+      { title: "The Selection", author: "Kiera Cass", clue: "Girls compete in a televised contest for a prince's hand and a chance to escape poverty." },
+      { title: "Red Queen", author: "Victoria Aveyard", clue: "A girl with a rare power hides among the elite in a world divided by blood color." },
+      { title: "Shadow and Bone", author: "Leigh Bardugo", clue: "An orphan mapmaker discovers a power that could save her war-torn kingdom." },
+      { title: "Crooked Kingdom", author: "Leigh Bardugo", clue: "The crew from the first heist reunites for an even more dangerous job after a betrayal." },
+      { title: "Scythe", author: "Neal Shusterman", clue: "In a world without death, two teens train to become the only ones allowed to end a life." },
+      { title: "The 5th Wave", author: "Rick Yancey", clue: "A girl fights to survive after alien invaders wipe out most of humanity in a series of deadly waves." },
+      { title: "Every Day", author: "David Levithan", clue: "A being wakes up in a different body every single day and falls for someone they can never keep." },
+      { title: "Paper Towns", author: "John Green", clue: "A boy follows a trail of clues left by the girl next door after she mysteriously disappears." },
+      { title: "Looking for Alaska", author: "John Green", clue: "A boy at boarding school falls for a magnetic, troubled girl who changes his life forever." },
+      { title: "If I Stay", author: "Gayle Forman", clue: "After a car crash leaves her body in a coma, a girl's spirit must decide whether to live or let go." },
+      { title: "City of Bones", author: "Cassandra Clare", clue: "A girl discovers she can see supernatural creatures invisible to ordinary people, plunging her into a hidden war." },
+      { title: "Everything Everything", author: "Nicola Yoon", clue: "A girl with a rare illness who has never left her house falls for the boy next door." },
+      { title: "Aristotle and Dante", author: "Benjamin Alire Sáenz", clue: "Two Mexican-American teenage boys form a life-changing friendship one summer that becomes something more." },
+    ],
+    hard: [
+      { title: "The Raven Boys", author: "Maggie Stiefvater", clue: "A girl who can see ghosts gets pulled into a search for a sleeping king." },
+      { title: "Vicious", author: "V.E. Schwab", clue: "Two former friends turned rivals discover how to grant people superhuman abilities." },
+      { title: "Illuminae", author: "Amie Kaufman & Jay Kristoff", clue: "Two teens piece together a deep-space disaster through hacked files and chat logs." },
+      { title: "The Scorpio Races", author: "Maggie Stiefvater", clue: "Riders capture deadly water horses for an annual race that claims lives every year." },
+      { title: "Daughter of Smoke and Bone", author: "Laini Taylor", clue: "A girl raised by monsters discovers the truth about her origins and a war between two worlds." },
+      { title: "Throne of Glass", author: "Sarah J. Maas", clue: "An assassin competes in a brutal tournament to win her freedom." },
+      { title: "The Winner's Curse", author: "Marie Rutkoski", clue: "An aristocrat's daughter buys an enslaved man at auction and finds herself drawn to him." },
+      { title: "Court of Fives", author: "Kate Elliott", clue: "A gifted athlete competes in a dangerous obstacle race while hiding a forbidden secret." },
+      { title: "Uprooted", author: "Naomi Novik", clue: "A village girl is taken by a reclusive wizard to serve him for ten years." },
+      { title: "The Diviners", author: "Libba Bray", clue: "A girl with a dangerous gift hunts a supernatural killer terrorizing 1920s New York City." },
+      { title: "Strange the Dreamer", author: "Laini Taylor", clue: "A junior librarian's dream of a mythical lost city leads him into forbidden magic." },
+      { title: "An Enchantment of Ravens", author: "Margaret Rogerson", clue: "A talented painter falls for an immortal prince in a bargain gone wrong." },
+      { title: "The Cruel Prince", author: "Holly Black", clue: "A mortal girl raised in the treacherous Faerie court schemes her way toward real power." },
+      { title: "Furyborn", author: "Claire Legrand", clue: "Two young women a thousand years apart are both prophesied to save or destroy their world." },
+      { title: "Vassa in the Night", author: "Sarah Porter", clue: "A girl must survive three impossible nights working for a murderous convenience store witch." },
+      { title: "The Bear and the Nightingale", author: "Katherine Arden", clue: "A wild young girl in medieval Russia is the only one who can see the spirits protecting her village." },
+      { title: "Sorcery of Thorns", author: "Margaret Rogerson", clue: "An apprentice librarian who tends dangerous, sentient books accidentally unleashes one of the most wicked." },
+      { title: "The Poppy War", author: "R.F. Kuang", clue: "A war orphan's brilliant test score earns her a spot at a military academy hiding a bloody history." },
+      { title: "Vengeful", author: "V.E. Schwab", clue: "A vengeful woman with the power to steal others' abilities returns to settle old scores." },
+      { title: "Six Crimson Cranes", author: "Elizabeth Lim", clue: "A princess cursed into swan form must stay silent or her six brothers will die." },
+    ],
+  };
+
+  // Mode selection
+  document.querySelectorAll('#screen-mode .index-card').forEach(card => {
+    card.addEventListener('click', () => {
+      state.mode = card.dataset.mode;
+      document.getElementById('mode-chip-label').textContent = modeLabels[state.mode];
+      showScreen('difficulty');
+    });
+  });
+
+  // Difficulty selection
+  document.querySelectorAll('#screen-difficulty .diff-card').forEach(card => {
+    card.addEventListener('click', () => {
+      state.difficulty = card.dataset.level;
+      enterGameScreen();
+    });
+  });
+
+  function enterGameScreen() {
+    const placeholder = document.getElementById('game-placeholder');
+    const wordleWrap = document.getElementById('game-wordle');
+    const scrambleWrap = document.getElementById('game-scramble');
+    const crosswordWrap = document.getElementById('game-crossword');
+
+    placeholder.hidden = true;
+    wordleWrap.hidden = true;
+    scrambleWrap.hidden = true;
+    crosswordWrap.hidden = true;
+
+    if (state.mode === 'wordle') {
+      wordleWrap.hidden = false;
+      startWordleRound(state.difficulty);
+    } else if (state.mode === 'scramble') {
+      scrambleWrap.hidden = false;
+      startScrambleRound(state.difficulty);
+    } else if (state.mode === 'crossword') {
+      crosswordWrap.hidden = false;
+      startCrosswordRound(state.difficulty);
+    } else {
+      placeholder.hidden = false;
+      document.getElementById('game-title-placeholder').textContent =
+        modeLabels[state.mode] + ' — ' + difficultyLabels[state.difficulty];
+      document.getElementById('game-meta-placeholder').textContent =
+        modeLabels[state.mode].toUpperCase() + ' · ' + difficultyLabels[state.difficulty].toUpperCase();
+    }
+    showScreen('game');
+  }
+
+  // Back buttons
+  const screenIdToKey = {
+    'screen-mode': 'mode',
+    'screen-difficulty': 'difficulty',
+    'screen-game': 'game',
+  };
+  document.querySelectorAll('[data-back-to]').forEach(btn => {
+    btn.addEventListener('click', () => showScreen(screenIdToKey[btn.dataset.backTo]));
+  });
+
+  // Restart (placeholder screen)
+  document.getElementById('restart-btn').addEventListener('click', () => {
+    state.mode = null;
+    state.difficulty = null;
+    showScreen('mode');
+  });
+
+  // ============ WORDLE GAME ============
+  const MAX_ATTEMPTS = 5;
+  let wordle = null; // { title, letters, layout, attempt, rowEls, over }
+
+  function buildLayout(title) {
+    const layout = [];
+    const letters = [];
+    for (const ch of title) {
+      if (/[a-zA-Z]/.test(ch)) {
+        layout.push({ type: 'letter', index: letters.length });
+        letters.push(ch.toUpperCase());
+      } else if (ch === ' ') {
+        layout.push({ type: 'space' });
+      } else {
+        layout.push({ type: 'punct', char: ch });
+      }
+    }
+    return { layout, letters };
+  }
+
+  function renderRowSkeleton(layout) {
+    const row = document.createElement('div');
+    row.className = 'wordle-row';
+    layout.forEach(token => {
+      if (token.type === 'letter') {
+        const tile = document.createElement('span');
+        tile.className = 'tile empty';
+        row.appendChild(tile);
+      } else if (token.type === 'space') {
+        const gap = document.createElement('span');
+        gap.className = 'word-gap';
+        row.appendChild(gap);
+      } else {
+        const mark = document.createElement('span');
+        mark.className = 'punct-mark';
+        mark.textContent = token.char;
+        row.appendChild(mark);
+      }
+    });
+    return row;
+  }
+
+  function pickRandomBook(level) {
+    const list = BOOKS[level] || BOOKS.easy;
+    return list[Math.floor(Math.random() * list.length)];
+  }
+
+  function buildWordGroups(layout) {
+    // Groups of letter-indices, split on spaces only (punctuation like an
+    // apostrophe stays inside the same word). Used so each word in a
+    // multi-word title is scored independently of the others.
+    const groups = [];
+    let current = [];
+    layout.forEach(token => {
+      if (token.type === 'letter') {
+        current.push(token.index);
+      } else if (token.type === 'space') {
+        if (current.length) { groups.push(current); current = []; }
+      }
+    });
+    if (current.length) groups.push(current);
+    return groups;
+  }
+
+  function startWordleRound(level) {
+    const book = pickRandomBook(level);
+    const { layout, letters } = buildLayout(book.title);
+    const wordGroups = buildWordGroups(layout);
+
+    wordle = { title: book.title, author: book.author, clue: book.clue, letters, layout, wordGroups, attempt: 0, rowEls: [], over: false };
+
+    document.getElementById('wordle-difficulty-label').textContent = difficultyLabels[level] + ' difficulty';
+
+    const board = document.getElementById('wordle-board');
+    board.innerHTML = '';
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      const row = renderRowSkeleton(layout);
+      board.appendChild(row);
+      wordle.rowEls.push(row);
+    }
+
+    const attemptsRow = document.getElementById('attempts-row');
+    attemptsRow.innerHTML = '';
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      const stub = document.createElement('span');
+      stub.className = 'attempt-stub';
+      attemptsRow.appendChild(stub);
+    }
+
+    setMessage('');
+    document.getElementById('wordle-endbar').classList.remove('show');
+
+    const input = document.getElementById('guess-input');
+    input.value = '';
+    input.disabled = false;
+    input.maxLength = book.title.length;
+    document.getElementById('check-btn').disabled = false;
+
+    const hintText = document.getElementById('hint-text');
+    hintText.hidden = true;
+    hintText.textContent = '';
+    const hintBtn = document.getElementById('hint-btn');
+    hintBtn.hidden = false;
+    hintBtn.disabled = false;
+
+    input.focus();
+  }
+
+  function setMessage(text, isError) {
+    const msg = document.getElementById('wordle-message');
+    msg.textContent = text;
+    msg.classList.toggle('is-error', !!isError);
+  }
+
+  function computeColors(guessLetters, secretLetters, wordGroups) {
+    const result = new Array(guessLetters.length).fill('absent');
+
+    wordGroups.forEach(group => {
+      const counts = {};
+      group.forEach(idx => { counts[secretLetters[idx]] = (counts[secretLetters[idx]] || 0) + 1; });
+
+      // pass 1: exact matches, scoped to this word only
+      group.forEach(idx => {
+        if (guessLetters[idx] === secretLetters[idx]) {
+          result[idx] = 'correct';
+          counts[guessLetters[idx]]--;
+        }
+      });
+      // pass 2: present-but-wrong-position, scoped to this word only
+      group.forEach(idx => {
+        if (result[idx] === 'correct') return;
+        const l = guessLetters[idx];
+        if (counts[l] > 0) {
+          result[idx] = 'present';
+          counts[l]--;
+        }
+      });
+    });
+
+    return result;
+  }
+
+  function fillRow(attemptIndex, colors, guessLetters) {
+    const row = wordle.rowEls[attemptIndex];
+    const tiles = row.querySelectorAll('.tile');
+    tiles.forEach((tile, i) => {
+      tile.textContent = guessLetters[i];
+      tile.classList.remove('empty');
+      tile.classList.add(colors[i]);
+      tile.classList.add('flip');
+    });
+  }
+
+  function updateAttemptStubs() {
+    const stubs = document.querySelectorAll('#attempts-row .attempt-stub');
+    stubs.forEach((stub, i) => stub.classList.toggle('used', i < wordle.attempt));
+  }
+
+  function endWordleRound(won) {
+    wordle.over = true;
+    document.getElementById('guess-input').disabled = true;
+    document.getElementById('check-btn').disabled = true;
+    document.getElementById('hint-btn').disabled = true;
+    document.getElementById('wordle-endbar').classList.add('show');
+    if (won) {
+      setMessage('Correctly filed! It was “' + wordle.title + '.”');
+      showWinCelebration();
+    } else {
+      setMessage('Out of checkouts — it was “' + wordle.title + '.”');
+    }
+  }
+
+  document.getElementById('hint-btn').addEventListener('click', () => {
+    if (!wordle) return;
+    const hintText = document.getElementById('hint-text');
+    hintText.textContent = wordle.clue;
+    hintText.hidden = false;
+    document.getElementById('hint-btn').hidden = true;
+  });
+
+  document.getElementById('guess-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!wordle || wordle.over) return;
+
+    const input = document.getElementById('guess-input');
+    const raw = input.value.trim();
+    if (!raw) return;
+
+    const guessLetters = [...raw].filter(ch => /[a-zA-Z]/.test(ch)).map(ch => ch.toUpperCase());
+
+    if (guessLetters.length !== wordle.letters.length) {
+      setMessage(`That title should have ${wordle.letters.length} letters — try again.`, true);
+      input.classList.add('shake');
+      setTimeout(() => input.classList.remove('shake'), 400);
+      return;
+    }
+
+    const colors = computeColors(guessLetters, wordle.letters, wordle.wordGroups);
+    fillRow(wordle.attempt, colors, guessLetters);
+    wordle.attempt++;
+    updateAttemptStubs();
+    input.value = '';
+
+    const won = colors.every(c => c === 'correct');
+    if (won) {
+      endWordleRound(true);
+    } else if (wordle.attempt >= MAX_ATTEMPTS) {
+      endWordleRound(false);
+    } else {
+      setMessage('');
+      input.focus();
+    }
+  });
+
+  document.getElementById('play-again-btn').addEventListener('click', () => {
+    startWordleRound(state.difficulty);
+  });
+
+  document.getElementById('wordle-menu-btn').addEventListener('click', () => {
+    state.mode = null;
+    state.difficulty = null;
+    showScreen('mode');
+  });
+
+  // ============ SCRAMBLE GAME ============
+  let scramble = null; // { title, author, letters, layout, tileObjs, poolOrder, answer, over }
+
+  function shuffleArray(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function startScrambleRound(level) {
+    const book = pickRandomBook(level);
+    const { layout, letters } = buildLayout(book.title);
+
+    const tileObjs = letters.map((ch, i) => ({ id: i, char: ch, placed: false }));
+    let order = tileObjs.map(t => t.id);
+    if (letters.length > 1) {
+      let tries = 0;
+      do {
+        order = shuffleArray(order);
+        tries++;
+      } while (order.every((id, idx) => id === idx) && tries < 10);
+    }
+
+    scramble = {
+      title: book.title,
+      author: book.author,
+      clue: book.clue,
+      letters,
+      layout,
+      tileObjs,
+      poolOrder: order,
+      answer: new Array(letters.length).fill(null),
+      over: false,
+    };
+
+    document.getElementById('scramble-difficulty-label').textContent = difficultyLabels[level] + ' difficulty';
+    setScrambleMessage('');
+
+    const endbar = document.getElementById('scramble-endbar');
+    endbar.classList.remove('show');
+
+    const hintText = document.getElementById('scramble-hint-text');
+    hintText.hidden = true;
+    hintText.textContent = '';
+    const hintBtn = document.getElementById('scramble-hint-btn');
+    hintBtn.hidden = false;
+    hintBtn.disabled = false;
+
+    document.getElementById('scramble-shuffle-btn').disabled = false;
+    document.getElementById('scramble-clear-btn').disabled = false;
+    document.getElementById('scramble-giveup-btn').disabled = false;
+
+    renderScramble();
+  }
+
+  function setScrambleMessage(text, isError) {
+    const msg = document.getElementById('scramble-message');
+    msg.textContent = text;
+    msg.classList.toggle('is-error', !!isError);
+  }
+
+  function renderScramble() {
+    // answer row (shape of the title, filled slots show placed letters)
+    const answerRow = document.getElementById('scramble-answer');
+    answerRow.innerHTML = '';
+    let letterPointer = 0;
+    scramble.layout.forEach(token => {
+      if (token.type === 'letter') {
+        const slotIndex = letterPointer;
+        letterPointer++;
+        const tileId = scramble.answer[slotIndex];
+        const slot = document.createElement('button');
+        slot.type = 'button';
+        if (tileId !== null) {
+          slot.className = 'scramble-slot filled';
+          slot.textContent = scramble.tileObjs[tileId].char;
+          slot.addEventListener('click', () => unplaceTile(slotIndex));
+        } else {
+          slot.className = 'scramble-slot';
+          slot.disabled = true;
+        }
+        answerRow.appendChild(slot);
+      } else if (token.type === 'space') {
+        const gap = document.createElement('span');
+        gap.className = 'scramble-gap';
+        answerRow.appendChild(gap);
+      } else {
+        const mark = document.createElement('span');
+        mark.className = 'scramble-punct';
+        mark.textContent = token.char;
+        answerRow.appendChild(mark);
+      }
+    });
+
+    // letter pool (unplaced tiles, in shuffled order)
+    const poolRow = document.getElementById('scramble-pool');
+    poolRow.innerHTML = '';
+    scramble.poolOrder.forEach(id => {
+      const tile = scramble.tileObjs[id];
+      if (tile.placed) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'scramble-tile';
+      btn.textContent = tile.char;
+      btn.addEventListener('click', () => placeTile(id));
+      poolRow.appendChild(btn);
+    });
+
+    const checkBtn = document.getElementById('scramble-check-btn');
+    checkBtn.disabled = scramble.over || scramble.answer.includes(null);
+  }
+
+  function placeTile(id) {
+    if (!scramble || scramble.over) return;
+    const emptyIndex = scramble.answer.indexOf(null);
+    if (emptyIndex === -1) return;
+    scramble.answer[emptyIndex] = id;
+    scramble.tileObjs[id].placed = true;
+    setScrambleMessage('');
+    renderScramble();
+  }
+
+  function unplaceTile(slotIndex) {
+    if (!scramble || scramble.over) return;
+    const id = scramble.answer[slotIndex];
+    if (id === null || id === undefined) return;
+    scramble.tileObjs[id].placed = false;
+    scramble.answer[slotIndex] = null;
+    renderScramble();
+  }
+
+  function checkScramble() {
+    if (!scramble || scramble.over) return;
+    if (scramble.answer.includes(null)) return;
+
+    const guessLetters = scramble.answer.map(id => scramble.tileObjs[id].char);
+    const correct = guessLetters.every((ch, i) => ch === scramble.letters[i]);
+
+    if (correct) {
+      endScrambleRound(true);
+    } else {
+      setScrambleMessage('Not quite — try rearranging the tiles.', true);
+      const answerRow = document.getElementById('scramble-answer');
+      answerRow.classList.add('shake');
+      setTimeout(() => answerRow.classList.remove('shake'), 400);
+    }
+  }
+
+  function endScrambleRound(won, gaveUp) {
+    scramble.over = true;
+    document.getElementById('scramble-check-btn').disabled = true;
+    document.getElementById('scramble-shuffle-btn').disabled = true;
+    document.getElementById('scramble-clear-btn').disabled = true;
+    document.getElementById('scramble-hint-btn').disabled = true;
+    document.getElementById('scramble-giveup-btn').disabled = true;
+    document.getElementById('scramble-endbar').classList.add('show');
+    if (won) {
+      setScrambleMessage('Correctly shelved! It was “' + scramble.title + '.”');
+      showWinCelebration();
+    } else if (gaveUp) {
+      setScrambleMessage('No worries — it was “' + scramble.title + '.”');
+    }
+  }
+
+  document.getElementById('scramble-check-btn').addEventListener('click', checkScramble);
+
+  document.getElementById('scramble-shuffle-btn').addEventListener('click', () => {
+    if (!scramble || scramble.over) return;
+    scramble.poolOrder = shuffleArray(scramble.poolOrder);
+    renderScramble();
+  });
+
+  document.getElementById('scramble-clear-btn').addEventListener('click', () => {
+    if (!scramble || scramble.over) return;
+    scramble.tileObjs.forEach(t => { t.placed = false; });
+    scramble.answer.fill(null);
+    setScrambleMessage('');
+    renderScramble();
+  });
+
+  document.getElementById('scramble-giveup-btn').addEventListener('click', () => {
+    if (!scramble || scramble.over) return;
+    endScrambleRound(false, true);
+  });
+
+  document.getElementById('scramble-hint-btn').addEventListener('click', () => {
+    if (!scramble) return;
+    const hintText = document.getElementById('scramble-hint-text');
+    hintText.textContent = scramble.clue;
+    hintText.hidden = false;
+    document.getElementById('scramble-hint-btn').hidden = true;
+  });
+
+  document.getElementById('scramble-play-again-btn').addEventListener('click', () => {
+    startScrambleRound(state.difficulty);
+  });
+
+  let crossword = null; // { placements, cellMap, rows, cols, solvedIds, currentDir, currentWordId }
+
+  function toAnswer(title) {
+    return title.toUpperCase().replace(/[^A-Z]/g, '');
+  }
+
+  function pickCrosswordEntries(level) {
+    const config = CROSSWORD_BOOKS[level] || CROSSWORD_BOOKS.easy;
+    const shuffled = shuffleArray(config.pool);
+    const chosen = shuffled.slice(0, 10).map((book, i) => ({
+      id: i,
+      title: book.title,
+      author: book.author,
+      plotClue: book.clue,
+      answer: toAnswer(book.title),
+    }));
+
+    // Pick which entries get an author-style clue instead of a plot clue.
+    const authorCount = Math.min(config.authorClueCount, chosen.length);
+    const authorIds = new Set(shuffleArray(chosen.map(c => c.id)).slice(0, authorCount));
+    chosen.forEach(c => {
+      c.clueType = authorIds.has(c.id) ? 'author' : 'plot';
+      c.clue = c.clueType === 'author' ? ('Written by ' + c.author + '.') : c.plotClue;
+    });
+    return chosen;
+  }
+
+  // Attempts to interlock all entries into a single grid, crossing on shared letters.
+  // Falls back to a disconnected placement for any word that can't be crossed in,
+  // so every requested book always appears somewhere in the puzzle.
+  function buildCrosswordLayout(entries) {
+    const sorted = [...entries].sort((a, b) => b.answer.length - a.answer.length);
+    const placements = [];
+    const occupied = new Map(); // "r,c" -> letter
+
+    function canPlace(answer, row, col, dir) {
+      let crossCount = 0;
+      for (let i = 0; i < answer.length; i++) {
+        const r = dir === 'across' ? row : row + i;
+        const c = dir === 'across' ? col + i : col;
+        const key = r + ',' + c;
+        if (occupied.has(key)) {
+          if (occupied.get(key) !== answer[i]) return null;
+          crossCount++;
+        } else {
+          if (dir === 'across') {
+            if (occupied.has((r - 1) + ',' + c) || occupied.has((r + 1) + ',' + c)) return null;
+          } else {
+            if (occupied.has(r + ',' + (c - 1)) || occupied.has(r + ',' + (c + 1))) return null;
+          }
+        }
+      }
+      const beforeKey = (dir === 'across' ? row : row - 1) + ',' + (dir === 'across' ? col - 1 : col);
+      const afterKey = (dir === 'across' ? row : row + answer.length) + ',' + (dir === 'across' ? col + answer.length : col);
+      if (occupied.has(beforeKey) || occupied.has(afterKey)) return null;
+      return crossCount;
+    }
+
+    const first = sorted[0];
+    placements.push({ ...first, row: 0, col: 0, dir: 'across' });
+    for (let i = 0; i < first.answer.length; i++) occupied.set('0,' + i, first.answer[i]);
+
+    for (let idx = 1; idx < sorted.length; idx++) {
+      const word = sorted[idx];
+      const candidates = [];
+      for (const p of placements) {
+        for (let pi = 0; pi < p.answer.length; pi++) {
+          const pr = p.dir === 'across' ? p.row : p.row + pi;
+          const pc = p.dir === 'across' ? p.col + pi : p.col;
+          const letter = p.answer[pi];
+          for (let wi = 0; wi < word.answer.length; wi++) {
+            if (word.answer[wi] !== letter) continue;
+            const newDir = p.dir === 'across' ? 'down' : 'across';
+            const row = newDir === 'across' ? pr : pr - wi;
+            const col = newDir === 'across' ? pc - wi : pc;
+            const crossCount = canPlace(word.answer, row, col, newDir);
+            if (crossCount !== null) candidates.push({ row, col, dir: newDir, crossCount });
+          }
+        }
+      }
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => b.crossCount - a.crossCount);
+        const bestScore = candidates[0].crossCount;
+        const best = candidates.filter(c => c.crossCount === bestScore);
+        const chosen = best[Math.floor(Math.random() * best.length)];
+        placements.push({ ...word, row: chosen.row, col: chosen.col, dir: chosen.dir });
+        for (let i = 0; i < word.answer.length; i++) {
+          const r = chosen.dir === 'across' ? chosen.row : chosen.row + i;
+          const c = chosen.dir === 'across' ? chosen.col + i : chosen.col;
+          occupied.set(r + ',' + c, word.answer[i]);
+        }
+      } else {
+        let maxR = -Infinity, minC = Infinity;
+        for (const key of occupied.keys()) {
+          const [r, c] = key.split(',').map(Number);
+          if (r > maxR) maxR = r;
+          if (c < minC) minC = c;
+        }
+        const row = maxR + 2;
+        const col = minC;
+        placements.push({ ...word, row, col, dir: 'across' });
+        for (let i = 0; i < word.answer.length; i++) occupied.set(row + ',' + (col + i), word.answer[i]);
+      }
+    }
+    return placements;
+  }
+
+  function normalizeAndNumber(placements) {
+    let minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
+    placements.forEach(p => {
+      for (let i = 0; i < p.answer.length; i++) {
+        const r = p.dir === 'across' ? p.row : p.row + i;
+        const c = p.dir === 'across' ? p.col + i : p.col;
+        minR = Math.min(minR, r); maxR = Math.max(maxR, r);
+        minC = Math.min(minC, c); maxC = Math.max(maxC, c);
+      }
+    });
+    placements.forEach(p => { p.row -= minR; p.col -= minC; });
+
+    const rows = maxR - minR + 1;
+    const cols = maxC - minC + 1;
+
+    const numberMap = new Map();
+    const sortedForNumbering = [...placements].sort((a, b) => a.row - b.row || a.col - b.col);
+    let nextNum = 1;
+    sortedForNumbering.forEach(p => {
+      const key = p.row + ',' + p.col;
+      if (!numberMap.has(key)) numberMap.set(key, nextNum++);
+      p.number = numberMap.get(key);
+    });
+
+    const cellMap = new Map();
+    placements.forEach(p => {
+      for (let i = 0; i < p.answer.length; i++) {
+        const r = p.dir === 'across' ? p.row : p.row + i;
+        const c = p.dir === 'across' ? p.col + i : p.col;
+        const key = r + ',' + c;
+        if (!cellMap.has(key)) cellMap.set(key, { letter: p.answer[i] });
+        const cell = cellMap.get(key);
+        if (p.dir === 'across') cell.acrossId = p.id; else cell.downId = p.id;
+        if (i === 0 && numberMap.get(p.row + ',' + p.col) !== undefined) {
+          cell.number = numberMap.get(p.row + ',' + p.col);
+        }
+      }
+    });
+
+    return { rows, cols, cellMap };
+  }
+
+  function startCrosswordRound(level) {
+    const entries = pickCrosswordEntries(level);
+    const placements = buildCrosswordLayout(entries);
+    const { rows, cols, cellMap } = normalizeAndNumber(placements);
+
+    crossword = {
+      level, entries, placements, cellMap, rows, cols,
+      solvedIds: new Set(),
+      currentDir: 'across',
+      currentWordId: null,
+      preClickDir: 'across',
+      preClickWordId: null,
+      over: false,
+    };
+
+    document.getElementById('crossword-difficulty-label').textContent = difficultyLabels[level] + ' difficulty';
+    document.getElementById('crossword-message').textContent = '';
+    document.getElementById('crossword-endbar').classList.remove('show');
+    document.getElementById('crossword-hint-btn').disabled = false;
+
+    renderCrosswordGrid();
+    renderClueLists();
+
+    const firstAcross = placements.filter(p => p.dir === 'across').sort((a, b) => a.number - b.number)[0];
+    if (firstAcross) selectWord(firstAcross.id, 'across', true);
+  }
+
+  function cellEl(r, c) {
+    return document.querySelector(`.cw-cell[data-r="${r}"][data-c="${c}"]`);
+  }
+  function inputEl(r, c) {
+    const cell = cellEl(r, c);
+    return cell ? cell.querySelector('input') : null;
+  }
+
+  function renderCrosswordGrid() {
+    const grid = document.getElementById('crossword-grid');
+    grid.innerHTML = '';
+    grid.style.gridTemplateColumns = `repeat(${crossword.cols}, 1fr)`;
+    grid.style.gridTemplateRows = `repeat(${crossword.rows}, 1fr)`;
+
+    for (let r = 0; r < crossword.rows; r++) {
+      for (let c = 0; c < crossword.cols; c++) {
+        const key = r + ',' + c;
+        const info = crossword.cellMap.get(key);
+        const wrapper = document.createElement('div');
+        wrapper.dataset.r = r;
+        wrapper.dataset.c = c;
+
+        if (!info) {
+          wrapper.className = 'cw-cell empty';
+          grid.appendChild(wrapper);
+          continue;
+        }
+
+        wrapper.className = 'cw-cell';
+        if (info.number) {
+          const num = document.createElement('span');
+          num.className = 'cw-number';
+          num.textContent = info.number;
+          wrapper.appendChild(num);
+        }
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.maxLength = 1;
+        input.autocomplete = 'off';
+        input.autocapitalize = 'characters';
+        input.setAttribute('inputmode', 'text');
+        input.addEventListener('mousedown', () => {
+          // Capture the selection as it was BEFORE this click's own focus
+          // event runs — 'focus' fires before 'click' for an unfocused
+          // element, so by the time onCellClick runs, currentWordId would
+          // already reflect what THIS click just selected, making every
+          // fresh click look like "clicking an already-selected cell."
+          crossword.preClickWordId = crossword.currentWordId;
+          crossword.preClickDir = crossword.currentDir;
+        });
+        input.addEventListener('focus', () => onCellFocus(r, c));
+        input.addEventListener('click', () => onCellClick(r, c));
+        input.addEventListener('input', (e) => onCellInput(r, c, e));
+        input.addEventListener('keydown', (e) => onCellKeydown(r, c, e));
+        wrapper.appendChild(input);
+        grid.appendChild(wrapper);
+      }
+    }
+  }
+
+  function renderClueLists() {
+    const acrossList = document.getElementById('clue-list-across');
+    const downList = document.getElementById('clue-list-down');
+    acrossList.innerHTML = '';
+    downList.innerHTML = '';
+
+    const across = crossword.placements.filter(p => p.dir === 'across').sort((a, b) => a.number - b.number);
+    const down = crossword.placements.filter(p => p.dir === 'down').sort((a, b) => a.number - b.number);
+
+    function buildItem(p) {
+      const li = document.createElement('li');
+      li.className = 'clue-item';
+      li.dataset.wordId = p.id;
+      li.dataset.dir = p.dir;
+      const numSpan = document.createElement('span');
+      numSpan.className = 'clue-num';
+      numSpan.textContent = p.number + '.';
+      li.appendChild(numSpan);
+      li.appendChild(document.createTextNode(p.clue));
+      li.addEventListener('click', () => selectWord(p.id, p.dir, true));
+      return li;
+    }
+
+    across.forEach(p => acrossList.appendChild(buildItem(p)));
+    down.forEach(p => downList.appendChild(buildItem(p)));
+  }
+
+  function getWord(id, dir) {
+    return crossword.placements.find(p => p.id === id && p.dir === dir);
+  }
+
+  function wordCells(word) {
+    const cells = [];
+    for (let i = 0; i < word.answer.length; i++) {
+      const r = word.dir === 'across' ? word.row : word.row + i;
+      const c = word.dir === 'across' ? word.col + i : word.col;
+      cells.push({ r, c });
+    }
+    return cells;
+  }
+
+  function selectWord(id, dir, focusStart) {
+    document.querySelectorAll('.cw-cell.active-word').forEach(el => el.classList.remove('active-word'));
+    document.querySelectorAll('.clue-item.active-clue').forEach(el => el.classList.remove('active-clue'));
+
+    const word = getWord(id, dir);
+    if (!word) return;
+    crossword.currentWordId = id;
+    crossword.currentDir = dir;
+
+    wordCells(word).forEach(({ r, c }) => {
+      const el = cellEl(r, c);
+      if (el) el.classList.add('active-word');
+    });
+    const clueEl = document.querySelector(`.clue-item[data-word-id="${id}"][data-dir="${dir}"]`);
+    if (clueEl) {
+      clueEl.classList.add('active-clue');
+      clueEl.scrollIntoView({ block: 'nearest' });
+    }
+    if (focusStart) {
+      const start = wordCells(word)[0];
+      const input = inputEl(start.r, start.c);
+      if (input) input.focus();
+    }
+  }
+
+  let suppressSmartDirection = false;
+
+  function onCellFocus(r, c) {
+    const info = crossword.cellMap.get(r + ',' + c);
+    if (!info) return;
+
+    if (suppressSmartDirection) {
+      suppressSmartDirection = false;
+      // This focus change came from our own code (auto-advance while typing,
+      // arrow-key navigation, or skipping past an already-solved cell) —
+      // keep going in whatever direction was already active rather than
+      // reinterpreting this cell as if the player just clicked it fresh.
+      let dir = crossword.currentDir;
+      if (dir === 'across' && info.acrossId === undefined) dir = 'down';
+      if (dir === 'down' && info.downId === undefined) dir = 'across';
+      const id = dir === 'across' ? info.acrossId : info.downId;
+      if (id !== undefined) selectWord(id, dir, false);
+      const focusedInput = inputEl(r, c);
+      if (focusedInput && focusedInput.readOnly) {
+        moveFocus(r, c, dir, 1);
+      }
+      return;
+    }
+
+    const acrossWord = info.acrossId !== undefined ? getWord(info.acrossId, 'across') : null;
+    const downWord = info.downId !== undefined ? getWord(info.downId, 'down') : null;
+    const isAcrossStart = !!(acrossWord && acrossWord.row === r && acrossWord.col === c);
+    const isDownStart = !!(downWord && downWord.row === r && downWord.col === c);
+
+    let dir;
+    if (isAcrossStart || isDownStart) {
+      // At least one direction genuinely starts here. If only one does, use
+      // it. If this cell happens to start BOTH words (they share their very
+      // first letter), default to across — standard crossword convention —
+      // on this first click; clicking the same cell again toggles to down.
+      dir = isAcrossStart ? 'across' : 'down';
+    } else {
+      // Genuinely ambiguous: a plain mid-word crossing (start of neither) or,
+      // rarely, the start of both. Fall back to the remembered direction,
+      // preferring whichever word here isn't solved yet.
+      const acrossOpen = info.acrossId !== undefined && !crossword.solvedIds.has(info.acrossId);
+      const downOpen = info.downId !== undefined && !crossword.solvedIds.has(info.downId);
+      dir = crossword.currentDir;
+      if (dir === 'across' && info.acrossId === undefined) dir = 'down';
+      if (dir === 'down' && info.downId === undefined) dir = 'across';
+      if (dir === 'across' && !acrossOpen && downOpen) dir = 'down';
+      else if (dir === 'down' && !downOpen && acrossOpen) dir = 'across';
+    }
+
+    const id = dir === 'across' ? info.acrossId : info.downId;
+    if (id !== undefined) selectWord(id, dir, false);
+
+    // If focus landed on a cell that's already solved (read-only, from a
+    // crossing word), jump straight to the next open cell in this word so
+    // typing always lands somewhere editable, with no keystrokes lost.
+    const focusedInput = inputEl(r, c);
+    if (focusedInput && focusedInput.readOnly) {
+      moveFocus(r, c, dir, 1);
+    }
+  }
+
+  function onCellClick(r, c) {
+    const info = crossword.cellMap.get(r + ',' + c);
+    if (!info) return;
+    const sameCell = crossword.preClickWordId !== null && crossword.preClickWordId !== undefined &&
+      wordCells(getWord(crossword.preClickWordId, crossword.preClickDir) || {}).some(cell => cell.r === r && cell.c === c);
+    if (sameCell && info.acrossId !== undefined && info.downId !== undefined) {
+      const newDir = crossword.preClickDir === 'across' ? 'down' : 'across';
+      const id = newDir === 'across' ? info.acrossId : info.downId;
+      selectWord(id, newDir, false);
+      // Toggling doesn't fire a fresh 'focus' event (we're already focused
+      // here), so re-check for a read-only cell and skip past it ourselves —
+      // otherwise focus can get stranded on an already-solved crossing cell.
+      const focusedInput = inputEl(r, c);
+      if (focusedInput && focusedInput.readOnly) {
+        moveFocus(r, c, newDir, 1);
+      }
+    }
+  }
+
+  function moveFocus(r, c, dir, step) {
+    let nr = r, nc = c;
+    while (true) {
+      nr += dir === 'down' ? step : 0;
+      nc += dir === 'across' ? step : 0;
+      if (nr < 0 || nc < 0 || nr >= crossword.rows || nc >= crossword.cols) return false;
+      if (crossword.cellMap.has(nr + ',' + nc)) {
+        const input = inputEl(nr, nc);
+        if (input && !input.readOnly) {
+          suppressSmartDirection = true;
+          input.focus();
+          return true;
+        }
+        // Cell belongs to an already-solved (locked) word — skip past it and keep going.
+      } else {
+        return false;
+      }
+    }
+  }
+
+  function onCellInput(r, c, e) {
+    if (crossword.over) return;
+    let val = e.target.value.toUpperCase().replace(/[^A-Z]/g, '');
+    e.target.value = val.slice(-1);
+    checkAffectedWords(r, c);
+    if (val) moveFocus(r, c, crossword.currentDir, 1);
+  }
+
+  function onCellKeydown(r, c, e) {
+    if (crossword.over) return;
+    const input = inputEl(r, c);
+
+    if (e.key === 'Backspace') {
+      if (input && input.value === '') {
+        e.preventDefault();
+        moveFocus(r, c, crossword.currentDir, -1);
+      }
+    } else if (e.key === 'ArrowRight') { e.preventDefault(); moveFocus(r, c, 'across', 1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); moveFocus(r, c, 'across', -1); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); moveFocus(r, c, 'down', 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); moveFocus(r, c, 'down', -1); }
+  }
+
+  function checkAffectedWords(r, c) {
+    const info = crossword.cellMap.get(r + ',' + c);
+    if (!info) return;
+    if (info.acrossId !== undefined) checkWord(info.acrossId, 'across');
+    if (info.downId !== undefined) checkWord(info.downId, 'down');
+  }
+
+  function checkWord(id, dir) {
+    const word = getWord(id, dir);
+    if (!word) return;
+    const cells = wordCells(word);
+    const values = cells.map(({ r, c }) => {
+      const input = inputEl(r, c);
+      return input ? input.value : '';
+    });
+    if (values.some(v => !v)) return; // not fully filled yet
+
+    const guess = values.join('');
+    const correct = guess === word.answer;
+
+    if (correct) {
+      crossword.solvedIds.add(id);
+      cells.forEach(({ r, c }) => {
+        const cellDiv = cellEl(r, c);
+        const input = inputEl(r, c);
+        if (cellDiv) { cellDiv.classList.add('correct'); cellDiv.classList.remove('incorrect'); }
+        if (input) input.readOnly = true;
+      });
+      const clueEl = document.querySelector(`.clue-item[data-word-id="${id}"][data-dir="${dir}"]`);
+      if (clueEl) clueEl.classList.add('solved-clue');
+      checkCrosswordComplete();
+    } else {
+      cells.forEach(({ r, c }) => {
+        const cellDiv = cellEl(r, c);
+        if (cellDiv && !cellDiv.classList.contains('correct')) cellDiv.classList.add('incorrect');
+      });
+      setTimeout(() => {
+        cells.forEach(({ r, c }) => {
+          const cellDiv = cellEl(r, c);
+          if (cellDiv) cellDiv.classList.remove('incorrect');
+        });
+      }, 500);
+    }
+  }
+
+  function checkCrosswordComplete() {
+    const totalEntries = crossword.entries.length;
+    // Each entry may be placed with only one orientation (across OR down), so solvedIds
+    // (keyed by book id) reaching totalEntries means every book is fully solved.
+    const solvedBookIds = new Set();
+    crossword.placements.forEach(p => { if (crossword.solvedIds.has(p.id)) solvedBookIds.add(p.id); });
+    if (solvedBookIds.size >= totalEntries) {
+      crossword.over = true;
+      document.getElementById('crossword-message').textContent = 'Every title correctly filed — the whole shelf is checked in!';
+      document.getElementById('crossword-endbar').classList.add('show');
+      document.getElementById('crossword-hint-btn').disabled = true;
+      showWinCelebration();
+    }
+  }
+
+  document.getElementById('crossword-hint-btn').addEventListener('click', () => {
+    if (!crossword || crossword.over) return;
+    const emptyCells = [];
+    for (let r = 0; r < crossword.rows; r++) {
+      for (let c = 0; c < crossword.cols; c++) {
+        const info = crossword.cellMap.get(r + ',' + c);
+        if (!info) continue;
+        const cellDiv = cellEl(r, c);
+        if (cellDiv && cellDiv.classList.contains('correct')) continue;
+        const input = inputEl(r, c);
+        if (input && input.value.toUpperCase() !== info.letter) emptyCells.push({ r, c, info });
+      }
+    }
+    if (emptyCells.length === 0) return;
+    const pick = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+    const input = inputEl(pick.r, pick.c);
+    if (input) {
+      input.value = pick.info.letter;
+      input.readOnly = true;
+      const cellDiv = cellEl(pick.r, pick.c);
+      if (cellDiv) { cellDiv.classList.add('correct'); cellDiv.classList.remove('incorrect'); }
+      checkAffectedWords(pick.r, pick.c);
+    }
+  });
+
+  document.getElementById('crossword-new-btn').addEventListener('click', () => {
+    startCrosswordRound(state.difficulty);
+  });
+
+  document.getElementById('crossword-play-again-btn').addEventListener('click', () => {
+    startCrosswordRound(state.difficulty);
+  });
+
+  document.getElementById('crossword-menu-btn').addEventListener('click', () => {
+    state.mode = null;
+    state.difficulty = null;
+    showScreen('mode');
+  });
+
+  document.getElementById('scramble-menu-btn').addEventListener('click', () => {
+    state.mode = null;
+    state.difficulty = null;
+    showScreen('mode');
+  });
+
+  // ============ CROSSWORD GAME ============
+  // Separate, larger pools so 10 of 12 are drawn at random each round.
+  // authorClueChance controls roughly how many of the 10 clues reveal the author instead of the plot.
+  const CROSSWORD_BOOKS = {
+    easy: {
+      authorClueCount: 0,
+      pool: [
+        { title: "The Hunger Games", author: "Suzanne Collins", clue: "Katniss volunteers to fight to the death in a televised arena to save her sister." },
+        { title: "Harry Potter", author: "J.K. Rowling", clue: "An orphan discovers he's a wizard and heads off to a magical boarding school." },
+        { title: "Twilight", author: "Stephenie Meyer", clue: "A teenage girl falls for a mysterious classmate who turns out to be a vampire." },
+        { title: "Divergent", author: "Veronica Roth", clue: "A girl chooses a faction outside her family's and uncovers a conspiracy threatening her divided city." },
+        { title: "The Fault in Our Stars", author: "John Green", clue: "Two teens with cancer fall in love after meeting in a support group." },
+        { title: "Percy Jackson", author: "Rick Riordan", clue: "A boy learns he's the son of a Greek god and must recover a stolen thunderbolt." },
+        { title: "The Maze Runner", author: "James Dashner", clue: "A boy wakes with no memory inside a community trapped in a deadly maze." },
+        { title: "Wonder", author: "R.J. Palacio", clue: "A boy with facial differences starts mainstream school for the first time." },
+        { title: "To All the Boys", author: "Jenny Han", clue: "A girl's secret love letters get mailed out and turn her life upside down." },
+        { title: "The Perks of Being a Wallflower", author: "Stephen Chbosky", clue: "A shy freshman finds his place through a pair of new friends." },
+        { title: "Eragon", author: "Christopher Paolini", clue: "A farm boy finds a dragon egg and becomes a Dragon Rider." },
+        { title: "Holes", author: "Louis Sachar", clue: "A boy sent to a juvenile camp is forced to dig holes that hide a decades-old secret." },
+        { title: "Insurgent", author: "Veronica Roth", clue: "Now a fugitive, a girl searches for answers while war brews between her city's factions." },
+        { title: "Allegiant", author: "Veronica Roth", clue: "A girl and her allies escape their walled city and discover a shocking truth about the outside world." },
+        { title: "Scythe", author: "Neal Shusterman", clue: "In a world without death, two teens train to become the only ones allowed to end a life." },
+        { title: "Catching Fire", author: "Suzanne Collins", clue: "Katniss is forced back into the arena as her act of defiance ignites a rebellion." },
+        { title: "Mockingjay", author: "Suzanne Collins", clue: "A reluctant symbol of rebellion is thrust to the front lines of an all-out war." },
+        { title: "Paper Towns", author: "John Green", clue: "A boy follows a trail of clues left by the girl next door after she mysteriously disappears." },
+        { title: "Every Day", author: "David Levithan", clue: "A being wakes up in a different body every single day and falls for someone they can never keep." },
+        { title: "If I Stay", author: "Gayle Forman", clue: "After a car crash leaves her body in a coma, a girl's spirit must decide whether to live or let go." },
+        { title: "City of Bones", author: "Cassandra Clare", clue: "A girl discovers she can see supernatural creatures invisible to ordinary people, plunging her into a hidden war." },
+        { title: "Everything Everything", author: "Nicola Yoon", clue: "A girl with a rare illness who has never left her house falls for the boy next door." },
+      ],
+    },
+    normal: {
+      authorClueCount: 2,
+      pool: [
+        { title: "The Book Thief", author: "Markus Zusak", clue: "A girl in Nazi Germany steals books and shares them during the horrors of war." },
+        { title: "Eleanor and Park", author: "Rainbow Rowell", clue: "Two misfit teens fall in love over comic books and mix tapes on the school bus." },
+        { title: "Six of Crows", author: "Leigh Bardugo", clue: "A crew of six outcasts plans an impossible heist in a city of thieves." },
+        { title: "The Giver", author: "Lois Lowry", clue: "A boy is chosen to inherit painful memories his utopian community has erased." },
+        { title: "Speak", author: "Laurie Halse Anderson", clue: "A girl goes silent after a traumatic party and slowly finds her voice through art class." },
+        { title: "An Ember in the Ashes", author: "Sabaa Tahir", clue: "A scholar's daughter infiltrates a brutal military academy to save her brother." },
+        { title: "Legend", author: "Marie Lu", clue: "A prodigy soldier and a notorious criminal cross paths in a divided, war-torn nation." },
+        { title: "The Selection", author: "Kiera Cass", clue: "Girls compete in a televised contest for a prince's hand and a chance to escape poverty." },
+        { title: "Red Queen", author: "Victoria Aveyard", clue: "A girl with a rare power hides among the elite in a world divided by blood color." },
+        { title: "Shadow and Bone", author: "Leigh Bardugo", clue: "An orphan mapmaker discovers a power that could save her war-torn kingdom." },
+        { title: "Vampire Academy", author: "Richelle Mead", clue: "A half-vampire guardian trains to protect her royal best friend from deadly enemies." },
+        { title: "Warcross", author: "Marie Lu", clue: "A bounty hunter hacks her way into a virtual reality tournament and uncovers a conspiracy." },
+        { title: "Crooked Kingdom", author: "Leigh Bardugo", clue: "The crew from the first heist reunites for an even more dangerous job after a betrayal." },
+        { title: "The 5th Wave", author: "Rick Yancey", clue: "A girl fights to survive after alien invaders wipe out most of humanity in a series of deadly waves." },
+        { title: "Looking for Alaska", author: "John Green", clue: "A boy at boarding school falls for a magnetic, troubled girl who changes his life forever." },
+        { title: "Fangirl", author: "Rainbow Rowell", clue: "A socially anxious college freshman clings to fan fiction while navigating life without her twin sister." },
+        { title: "Wilder Girls", author: "Rory Power", clue: "Three girls at an isolated boarding school battle a mysterious illness that twists their bodies." },
+        { title: "The Hate U Give", author: "Angie Thomas", clue: "A girl who witnesses a police shooting of her childhood friend must find her voice and speak out." },
+        { title: "Winger", author: "Andrew Smith", clue: "A boarding school hockey player navigates friendship, love, and painful growing pains." },
+        { title: "Aristotle and Dante", author: "Benjamin Alire Sáenz", clue: "Two Mexican-American teenage boys form a life-changing friendship one summer that becomes something more." },
+      ],
+    },
+    hard: {
+      authorClueCount: 4,
+      pool: [
+        { title: "The Raven Boys", author: "Maggie Stiefvater", clue: "A girl who can see ghosts gets pulled into a search for a sleeping king." },
+        { title: "Vicious", author: "V.E. Schwab", clue: "Two former friends turned rivals discover how to grant people superhuman abilities." },
+        { title: "Illuminae", author: "Amie Kaufman & Jay Kristoff", clue: "Two teens piece together a deep-space disaster through hacked files and chat logs." },
+        { title: "The Scorpio Races", author: "Maggie Stiefvater", clue: "Riders capture deadly water horses for an annual race that claims lives every year." },
+        { title: "Daughter of Smoke and Bone", author: "Laini Taylor", clue: "A girl raised by monsters discovers the truth about her origins and a war between two worlds." },
+        { title: "Throne of Glass", author: "Sarah J. Maas", clue: "An assassin competes in a brutal tournament to win her freedom." },
+        { title: "The Winner's Curse", author: "Marie Rutkoski", clue: "An aristocrat's daughter buys an enslaved man at auction and finds herself drawn to him." },
+        { title: "Court of Fives", author: "Kate Elliott", clue: "A gifted athlete competes in a dangerous obstacle race while hiding a forbidden secret." },
+        { title: "Uprooted", author: "Naomi Novik", clue: "A village girl is taken by a reclusive wizard to serve him for ten years." },
+        { title: "The Diviners", author: "Libba Bray", clue: "A girl with a dangerous gift hunts a supernatural killer terrorizing 1920s New York City." },
+        { title: "Strange the Dreamer", author: "Laini Taylor", clue: "A junior librarian's dream of a mythical lost city leads him into forbidden magic." },
+        { title: "An Enchantment of Ravens", author: "Margaret Rogerson", clue: "A talented painter falls for an immortal prince in a bargain gone wrong." },
+        { title: "The Cruel Prince", author: "Holly Black", clue: "A mortal girl raised in the treacherous Faerie court schemes her way toward real power." },
+        { title: "Furyborn", author: "Claire Legrand", clue: "Two young women a thousand years apart are both prophesied to save or destroy their world." },
+        { title: "Vassa in the Night", author: "Sarah Porter", clue: "A girl must survive three impossible nights working for a murderous convenience store witch." },
+        { title: "Sorcery of Thorns", author: "Margaret Rogerson", clue: "An apprentice librarian who tends dangerous, sentient books accidentally unleashes one of the most wicked." },
+        { title: "The Poppy War", author: "R.F. Kuang", clue: "A war orphan's brilliant test score earns her a spot at a military academy hiding a bloody history." },
+        { title: "Vengeful", author: "V.E. Schwab", clue: "A vengeful woman with the power to steal others' abilities returns to settle old scores." },
+        { title: "Six Crimson Cranes", author: "Elizabeth Lim", clue: "A princess cursed into swan form must stay silent or her six brothers will die." },
+        { title: "The Diabolic", author: "S.J. Kincaid", clue: "A girl bred to be a lethal bodyguard must impersonate the princess she's sworn to protect." },
+      ],
+    },
+  };
+</script>
+
+</body>
+</html>

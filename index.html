@@ -396,6 +396,17 @@
     row-gap: 8px;
   }
 
+  /* Groups one word's tiles (and any punctuation inside it, like an
+     apostrophe) into a single atomic flex item, so the row only ever
+     wraps BETWEEN words on narrow screens — never in the middle of one. */
+  .tile-word {
+    display: flex;
+    flex-wrap: nowrap;
+    flex: 0 0 auto;
+    align-items: flex-end;
+    gap: 5px;
+  }
+
   .tile {
     width: 34px;
     height: 34px;
@@ -601,6 +612,16 @@
     transition: transform 0.05s ease;
   }
   .scramble-answer.shake { animation: inputShake 0.4s ease; }
+
+  /* Same fix as .tile-word: keeps one word's slots together as a single
+     unit so the row only wraps between words, never inside one. */
+  .scramble-word {
+    display: flex;
+    flex-wrap: nowrap;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+  }
 
   .scramble-slot {
     width: 38px;
@@ -1422,20 +1443,32 @@
   function renderRowSkeleton(layout) {
     const row = document.createElement('div');
     row.className = 'wordle-row';
+    let currentWord = null;
+
+    function wordContainer() {
+      if (!currentWord) {
+        currentWord = document.createElement('div');
+        currentWord.className = 'tile-word';
+        row.appendChild(currentWord);
+      }
+      return currentWord;
+    }
+
     layout.forEach(token => {
       if (token.type === 'letter') {
         const tile = document.createElement('span');
         tile.className = 'tile empty';
-        row.appendChild(tile);
+        wordContainer().appendChild(tile);
       } else if (token.type === 'space') {
         const gap = document.createElement('span');
         gap.className = 'word-gap';
         row.appendChild(gap);
+        currentWord = null; // next letters belong to a new word
       } else {
         const mark = document.createElement('span');
         mark.className = 'punct-mark';
         mark.textContent = token.char;
-        row.appendChild(mark);
+        wordContainer().appendChild(mark);
       }
     });
     return row;
@@ -1692,6 +1725,17 @@
     const answerRow = document.getElementById('scramble-answer');
     answerRow.innerHTML = '';
     let letterPointer = 0;
+    let currentWord = null;
+
+    function wordContainer() {
+      if (!currentWord) {
+        currentWord = document.createElement('div');
+        currentWord.className = 'scramble-word';
+        answerRow.appendChild(currentWord);
+      }
+      return currentWord;
+    }
+
     scramble.layout.forEach(token => {
       if (token.type === 'letter') {
         const slotIndex = letterPointer;
@@ -1707,16 +1751,17 @@
           slot.className = 'scramble-slot';
           slot.disabled = true;
         }
-        answerRow.appendChild(slot);
+        wordContainer().appendChild(slot);
       } else if (token.type === 'space') {
         const gap = document.createElement('span');
         gap.className = 'scramble-gap';
         answerRow.appendChild(gap);
+        currentWord = null; // next slots belong to a new word
       } else {
         const mark = document.createElement('span');
         mark.className = 'scramble-punct';
         mark.textContent = token.char;
-        answerRow.appendChild(mark);
+        wordContainer().appendChild(mark);
       }
     });
 
